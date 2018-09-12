@@ -13,7 +13,7 @@ defmodule DataPointsTest do
     DataPoints.process_new_files(files.new)
 
     #IO.puts "Files found are: #{files}"
-    IO.inspect files
+    #IO.inspect files
 
     :timer.sleep(10000)
 
@@ -21,7 +21,7 @@ defmodule DataPointsTest do
     DataPoints.process_new_files(new_files.new)
 
     #IO.puts "New files found are: #{new_files}"
-    IO.inspect new_files
+    #IO.inspect new_files
 
 
 #    assert DataPoints.hello() == :world
