@@ -20,7 +20,7 @@ defmodule DataPoints do
     new_files = files -- existing_files
 
     Logger.debug "Files found while looking in directory #{path} are: #{inspect(files)}"
-    Logger.debug "The new files discovered are: #{inspect(new_files)}"
+    Logger.info "The new files discovered are: #{inspect(new_files)}"
     %{:found => files, :new => new_files}
   end
 
@@ -32,7 +32,7 @@ defmodule DataPoints do
   defp extract_data(file) do
     file
     |> File.stream!
-    |> Enum.drop(1)
+    |> Stream.drop(1)
     |> CSV.decode!(strip_fields: true, headers: @headers)
     |> Enum.map(&(create_data_point(&1)))
   end
