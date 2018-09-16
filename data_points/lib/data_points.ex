@@ -1,6 +1,29 @@
 defmodule DataPoints do
   
+  use Application
   require Logger
+
+  # The application's initialization function
+  def start(_type, _args) do
+    
+    import Supervisor.Spec, warn: false
+    
+    children = [
+#      {Registry, keys: :unique, name: Registry.ViaTest}
+#      supervisor(Registry, [:unique, :jon])
+      supervisor(Registry, keys: :unique, name: Registry.ViaTest)
+    ]
+
+    Logger.debug "Application starting with children: #{inspect children}"
+
+    # Cannot figure out how to start the Registry as part of a supervision tree
+#    Supervisor.init(children, strategy: :one_for_one)
+
+    # Starting registry outside a supervision tree until I can figure out what is wrong
+    {:ok, _} = Registry.start_link(keys: :unique, name: DataPointsStoreRegistry)
+  end
+
+
 
   @headers [:machine, :date, :time, :mem_max, :mem_avg, :mem_min, :cpu_max, :cpu_avg, :cpu_min, :net_min, :net_avg, :net_max]
 
