@@ -7,3 +7,6 @@ erl_crash.dump
 *.ez
 *.beam
 /config/*.secret.exs
+# Jon catlin
+# ignore .dets files as they are files used to store state during the tests
+*.dets
