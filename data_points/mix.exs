@@ -15,14 +15,15 @@ defmodule DataPoints.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {DataPoints, []}
+      mod: {Start, []}
     ]
   end
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:csv, "~> 2.1.1"}
+      {:csv, "~> 2.1.1"},
+      {:flow, "~> 0.14.2"}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"},
     ]

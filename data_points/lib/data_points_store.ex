@@ -12,13 +12,16 @@ defmodule DataPointsStore do
   def start_link(machine, %Date{} = date) do
     name = get_name(machine, date.year, date.month, date.day)
     server_name = via_tuple(name)
-    case GenServer.start_link(__MODULE__, name, name: server_name) do
+    Logger.debug("Starting DataPointsStore with name=#{inspect name} and server_name=#{inspect server_name}")
+    result = case GenServer.start_link(__MODULE__, %{machine: machine, name: name}, name: server_name) do
       {:ok, pid} -> pid 
       {:error, {:already_started, pid}} -> pid
     end
+    Logger.debug("Result=#{inspect result}")
+    result
   end
 
-  defp get_name(machine, year, month, day) do
+  def get_name(machine, year, month, day) do
     "#{machine}-#{year}-#{month}-#{day}"
   end
 
@@ -59,19 +62,29 @@ defmodule DataPointsStore do
   ###################################################################################################################
   ## Server Callbacks
 
-  def init(name) do
+  def init(args) do
+    # ensure the directory exists
+    dir = "./DataPointsStore-files/" <> args.machine
+    :ok = File.mkdir_p(dir)
+
     # Check to see if there is a DETS file for this process and load it if there is
     # otherwise create an empty structure
+    filename = String.to_charlist(dir <> "/#{args.name}.dets")
+    Logger.info("Starting store with filename=#{inspect filename}")
+    case :dets.open_file(:file_table, [{:file, filename}]) do
+      {:ok, _table} -> {}
+      {:error, reason} -> 
+        Logger.error("Error in starting data store, args=#{inspect args}, reason=#{inspect reason}, filename=#{inspect filename}")
+    end
 
-    filename = String.to_charlist("#{name}.dets")
-    :dets.open_file(:file_table, [{:file, filename}])
+#    {:ok, table} = :dets.open_file(:file_table, [{:file, filename}])
 
     data = case :dets.lookup(:file_table, :data) do
       [data: anything] -> 
         Logger.debug("restoring state to #{inspect anything}")
         anything
       [] -> 
-        Logger.debug("no match found for :data")
+        Logger.debug("no state to restore so setting to empty")
         @empty_map
     end
 
@@ -89,12 +102,12 @@ defmodule DataPointsStore do
 
 
   def handle_call(:stop, _from, state) do
-    Logger.debug("Stopping process, saving state=#{inspect state}")
+    Logger.info("Stopping store with filename=#{inspect state.filename}")
     :dets.open_file(:file_table, [{:file, state.filename}])
     :dets.delete_all_objects(:file_table)
     :dets.insert(:file_table, {:data, state.data})
     :dets.close(:file_table)
-    {:reply, :ok, state}
+    {:stop, :normal, :ok, state}
   end
 
 

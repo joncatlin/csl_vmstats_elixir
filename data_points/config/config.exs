@@ -5,8 +5,14 @@ use Mix.Config
 config :logger,
   backends: [:console],
   compile_time_purge_matching: [
-    [level_lower_than: :debug]
+#    [application: :data_points],
+    [module: DataPointsStore, level_lower_than: :info],
+    [module: DataPoints, level_lower_than: :info],
+ #   [module: DataPoints, function: "foo/3", level_lower_than: :debug]
   ]
+
+config :logger, :console,
+  colors: [enabled: true, info: :cyan]
 
 # This configuration is loaded before any dependency and is restricted
 # to this project. If another project depends on this project, this

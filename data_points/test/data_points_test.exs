@@ -11,16 +11,15 @@ defmodule DataPointsTest do
 #    files = DataPoints.find_new_files(path, initial_files)
 #    DataPoints.process_new_files(files.new)
 
-#    :timer.sleep(10000)
-
 #    new_files = DataPoints.find_new_files(path, files.found)
 #    DataPoints.process_new_files(new_files.new)
 
 #  end
 
-  test "init the server" do
+  test "init the DataPoints server" do
 
-    date = Date.utc_today
+    DataPoints.start_link("")
+    Process.sleep(40000000)
 
     # # start the server
     # pid = DataPointsStore.start_link("server1", date)

@@ -1,44 +1,23 @@
 defmodule DataPoints do
   
-  use Application
+  use GenServer
   require Logger
 
-  # The application's initialization function
-  def start(_type, _args) do
-    
-    import Supervisor.Spec, warn: false
-    
-    children = [
-#      {Registry, keys: :unique, name: Registry.ViaTest}
-#      supervisor(Registry, [:unique, :jon])
-      supervisor(Registry, keys: :unique, name: Registry.ViaTest)
-    ]
-
-    Logger.debug "Application starting with children: #{inspect children}"
-
-    # Cannot figure out how to start the Registry as part of a supervision tree
-#    Supervisor.init(children, strategy: :one_for_one)
-
-    # Starting registry outside a supervision tree until I can figure out what is wrong
-    {:ok, _} = Registry.start_link(keys: :unique, name: DataPointsStoreRegistry)
-  end
-
-
-
+  @interval 10 * 1000
   @headers [:machine, :date, :time, :mem_max, :mem_avg, :mem_min, :cpu_max, :cpu_avg, :cpu_min, :net_min, :net_avg, :net_max]
 
-  defstruct machine: "", date: "", time: "",     
-    mem_max: 0.0,
-    mem_min: 0.0,
-    mem_avg: 0.0,
-    cpu_max: 0.0,
-    cpu_min: 0.0,
-    cpu_avg: 0.0,
-    net_max: 0.0,
-    net_min: 0.0,
-    net_avg: 0.0
+  defstruct machine: "", date: "", time: "", data: %{}
+#    mem_max: 0.0,
+#    mem_min: 0.0,
+#    mem_avg: 0.0,
+#    cpu_max: 0.0,
+#    cpu_min: 0.0,
+#    cpu_avg: 0.0,
+#    net_max: 0.0,
+#    net_min: 0.0,
+#    net_avg: 0.0
 
-  def find_new_files(path, existing_files) do
+  defp find_new_files(path, existing_files) do
     files = Path.wildcard(path)
     new_files = files -- existing_files
 
@@ -48,17 +27,65 @@ defmodule DataPoints do
   end
 
   def process_new_files(files) do
-    Logger.debug "Files to process are: #{inspect(files)}"
+    files
+    |> Flow.from_enumerable()
+    |> Flow.partition(max_demand: 100, stages: 4)
+#    |> Flow.map(&(IO.puts "file is = #{&1}"))
+    |> Flow.map(&extract_data(&1))
+    |> Flow.run()
+    Logger.info "All files processed"
+  end
+
+  def process_new_files_old(files) do
     Enum.each files, fn(file) -> extract_data(file) end
+    Logger.info "All files processed"
+  end
+
+  defp extract_data2(file) do
+    file
+    |> File.stream!(read_ahead: 100_000)
+    |> Stream.drop(1)
+    |> CSV.decode!(strip_fields: true, headers: @headers)
+    |> Enum.chunk_by(&(get_chunk_key(&1)))
+    |> Flow.from_enumerable()
+    |> Flow.partition()
+    |> Flow.map(&(create_dps_for_machine(&1)))
   end
 
   defp extract_data(file) do
+    Logger.info("In extract data for file #{inspect file}")
     file
     |> File.stream!
     |> Stream.drop(1)
     |> CSV.decode!(strip_fields: true, headers: @headers)
-    |> Enum.map(&(create_data_point(&1)))
+    |> Enum.chunk_by(&(get_chunk_key(&1)))
+    |> Enum.map(&(create_dps_for_machine(&1)))
+#    |> Enum.flat_map(fn x -> x end)
+#    |> Enum.map(&(create_data_point(&1)))
+#    |> IO.inspect()
+
+#    |> Enum.map(&(store(&1)))
   end
+
+  defp create_dps_for_machine(points) do
+    Logger.debug("Create data points for a machine. dps = #{inspect points}")
+    
+    {machine, date} = points
+    |> Enum.map(&(create_data_point(&1)))
+    |> Enum.map(&(store(&1)))
+    |> Enum.at(0)                      # only get 1 item
+#    |> IO.inspect
+
+    # WARNING this assumes that the points provided to this routine are grouped by machine and date
+    # stop the DataPointsStore for this batch
+    :ok = DataPointsStore.stop_link(machine, date)
+  end
+
+
+  defp get_chunk_key(line) do
+    line.machine <> line.date
+  end
+
 
   defp create_data_point(line) do
     Logger.debug "Creating a data point from the line with value: #{inspect(line)}"
@@ -66,19 +93,25 @@ defmodule DataPoints do
     [hours, minutes, seconds] = String.split(line.time, ":")
     time_in_s = (String.to_integer(hours) * 60 * 60) + (String.to_integer(minutes) * 60) + String.to_integer(seconds)
 
+    # create the date
+    {:ok, date} = Date.new(String.to_integer(year), String.to_integer(month), String.to_integer(day))
+
     data_point = 
-      %DataPoints{machine: line.machine, \
-        date: Date.new(String.to_integer(year), String.to_integer(month), String.to_integer(day)),\
-        time: time_in_s, \
-        mem_max: to_float(line.mem_max), \
-        mem_min: to_float(line.mem_min), \
-        mem_avg: to_float(line.mem_avg), \
-        cpu_max: to_float(line.cpu_max), \
-        cpu_min: to_float(line.cpu_min), \
-        cpu_avg: to_float(line.cpu_avg), \
-        net_max: to_float(line.net_max), \
-        net_min: to_float(line.net_min), \
-        net_avg: to_float(line.net_avg)}
+      %DataPoints{machine: line.machine, 
+        date: date,
+        time: time_in_s, 
+        data: %{
+          "mem_max" => to_float(line.mem_max), 
+          "mem_min" => to_float(line.mem_min), 
+          "mem_avg" => to_float(line.mem_avg), 
+          "cpu_max" => to_float(line.cpu_max), 
+          "cpu_min" => to_float(line.cpu_min), 
+          "cpu_avg" => to_float(line.cpu_avg), 
+          "net_max" => to_float(line.net_max), 
+          "net_min" => to_float(line.net_min), 
+          "net_avg" => to_float(line.net_avg)
+        }
+      }
 
     Logger.debug "data_point created is: #{inspect(data_point)}"
     data_point
@@ -87,8 +120,130 @@ defmodule DataPoints do
   defp to_float(string_value) do
     cond do
       string_value == "" -> 0.0
-      string_value == "0" -> 0.0
-      true -> String.to_float(string_value)
+      true -> 
+        {value, _} = Float.parse(string_value)
     end
+  end
+
+  defp store(point) do
+    Logger.debug("Data to store = #{inspect point}") 
+
+    # create the store incase it does not exist
+    DataPointsStore.start_link(point.machine, point.date)
+
+    # add the data to the store
+    point.data
+    |> Enum.map(fn {key, val} -> DataPointsStore.save(point.machine, point.date, key, point.time, val) end)
+
+    # return the machine name and date
+    {point.machine, point.date}
+  end
+
+
+  ###################################################################################################################
+  ## Client API
+
+  def start_link(path) do
+    server_name = via_tuple(:data_points)
+    case GenServer.start_link(__MODULE__, path, name: server_name) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+    end
+  end
+
+  defp via_tuple(server_name) do
+    {:via, Registry, {DataPointsStoreRegistry, server_name}}
+  end
+
+  ###################################################################################################################
+  ## Server Callbacks
+
+  @impl true
+  def init(_name) do
+    dir = "C:/temp/vmstats_data/"
+    type = "*.[cC][sS][vV]"
+    path = dir <> type
+
+    Logger.info("Starting DataPoints gen_server with path=#{inspect path}")
+
+    schedule_work()
+
+    state = %{path: path, existing_files: []}
+    {:ok, state}
+  end
+
+
+  @impl true
+  def handle_info(:work, state) do
+
+    Logger.debug("Timer fired, state=#{inspect state}")
+
+    # Do work here
+    result = find_new_files(state.path, state.existing_files)
+    process_new_files(result.new)
+
+    schedule_work() # Reschedule once more
+
+    # update the state
+    newstate = put_in(state, [:existing_files], result.found)
+    {:noreply, newstate}
+  end
+
+  # Scheulde a msg to be delivered to the process, effectively a timer
+  defp schedule_work() do
+    Process.send_after(self(), :work, @interval)
+  end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+defmodule MyApp.Periodically do
+  use GenServer
+
+  def start_link do
+    GenServer.start_link(__MODULE__, %{})
+  end
+
+  @impl true
+  def init(state) do
+    schedule_work() # Schedule work to be performed on start
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_info(:work, state) do
+    # Do the desired work here
+    schedule_work() # Reschedule once more
+    {:noreply, state}
+  end
+
+  defp schedule_work() do
+    Process.send_after(self(), :work, 2 * 60 * 60 * 1000) # In 2 hours
   end
 end
