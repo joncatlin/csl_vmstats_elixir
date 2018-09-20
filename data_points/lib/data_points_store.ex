@@ -115,7 +115,8 @@ defmodule DataPointsStore do
     Logger.info("Stopping store with filename=#{inspect state.filename}")
     bin = :erlang.term_to_binary(state.data)
     File.write!(state.filename, bin)
-    {:stop, :normal, :ok, state}
+#    {:stop, :normal, :ok, state}
+    {:stop, :normal, state}
   end
 
 
@@ -156,19 +157,9 @@ defmodule DataPointsStore do
   def handle_cast({:save_point, point}, state) do
     Logger.debug("Saving point for #{state.filename}, data=#{inspect point}")
 
-    Logger.error("before state=#{inspect state}")
-
+    # recursivly call save in order to update the state correctly
     newstate = server_save(point.data, point.time, state)
 
-    # new stuff
-    # point.data
-    # |> Enum.each(fn ({key, value}) -> state = server_save(key, point.time, value, state) end)
-#    |> Enum.each(fn ({key, value}) -> Logger.error("key=#{inspect key}, value=#{inspect value}") end)
-    Logger.error("after state=#{inspect newstate}")
-
-#    put_in(%{a: %{}}, Enum.map([:a, :b, :c], &Access.key(&1, %{})), 42)
-
-#    newstate = server_save(newdata, state)
     Logger.debug("newstate=#{inspect newstate}")
     {:noreply, newstate}
   end
