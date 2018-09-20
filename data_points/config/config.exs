@@ -6,7 +6,7 @@ config :logger,
   backends: [:console],
   compile_time_purge_matching: [
 #    [application: :data_points],
-    [module: DataPointsStore, level_lower_than: :info],
+    [module: DataPointsStore, level_lower_than: :error],
     [module: DataPoints, level_lower_than: :info],
  #   [module: DataPoints, function: "foo/3", level_lower_than: :debug]
   ]

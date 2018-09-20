@@ -28,43 +28,55 @@ defmodule DataPoints do
 
   def process_new_files(files) do
     files
+    |> Enum.sort
+    |> Enum.chunk_by(&(get_chunk_filename_key(&1)))
+#    |> Enum.map(&(IO.puts "file chunk = #{inspect &1}"))
     |> Flow.from_enumerable()
-    |> Flow.partition(max_demand: 100, stages: 4)
-#    |> Flow.map(&(IO.puts "file is = #{&1}"))
-    |> Flow.map(&extract_data(&1))
+    |> Flow.partition(max_demand: 100, stages: 2)
+    |> Flow.map(&process_group_of_files(&1))
+#    |> Flow.map(&extract_data(&1))
     |> Flow.run()
     Logger.info "All files processed"
   end
 
-  def process_new_files_old(files) do
-    Enum.each files, fn(file) -> extract_data(file) end
-    Logger.info "All files processed"
-  end
+  # def process_new_files_old(files) do
+  #   Enum.each files, fn(file) -> extract_data(file) end
+  #   Logger.info "All files processed"
+  # end
 
-  defp extract_data2(file) do
-    file
+
+  # defp extract_data2(file) do
+  #   file
+  #   |> File.stream!(read_ahead: 100_000)
+  #   |> Stream.drop(1)
+  #   |> CSV.decode!(strip_fields: true, headers: @headers)
+  #   |> Enum.chunk_by(&(get_chunk_key(&1)))
+  #   |> Flow.from_enumerable()
+  #   |> Flow.partition()
+  #   |> Flow.map(&(create_dps_for_machine(&1)))
+  # end
+
+  defp process_group_of_files(file_list) do
+    [head | _] = file_list
+    Logger.info("In extract filename for file_list with first element= #{inspect head} in stage=#{inspect self()}")
+
+    file_list
+    |> Stream.map(&(&1))
+    |> Enum.map(&(process_file(&1)))
+#    |> Stream.map(&(process_file(&1)))
+#    |> Stream.run
+  end
+  
+
+  defp process_file(filename) do
+    # Logger.info("In extract data for file= #{inspect filename} in stage=#{inspect self()}")
+
+    filename
     |> File.stream!(read_ahead: 100_000)
-    |> Stream.drop(1)
-    |> CSV.decode!(strip_fields: true, headers: @headers)
-    |> Enum.chunk_by(&(get_chunk_key(&1)))
-    |> Flow.from_enumerable()
-    |> Flow.partition()
-    |> Flow.map(&(create_dps_for_machine(&1)))
-  end
-
-  defp extract_data(file) do
-    Logger.info("In extract data for file #{inspect file}")
-    file
-    |> File.stream!
-    |> Stream.drop(1)
+    |> Stream.drop(1) # ignore the first line as it contains headers
     |> CSV.decode!(strip_fields: true, headers: @headers)
     |> Enum.chunk_by(&(get_chunk_key(&1)))
     |> Enum.map(&(create_dps_for_machine(&1)))
-#    |> Enum.flat_map(fn x -> x end)
-#    |> Enum.map(&(create_data_point(&1)))
-#    |> IO.inspect()
-
-#    |> Enum.map(&(store(&1)))
   end
 
   defp create_dps_for_machine(points) do
@@ -76,14 +88,27 @@ defmodule DataPoints do
     |> Enum.at(0)                      # only get 1 item
 #    |> IO.inspect
 
+
+    #return ok - NOTE this must be here or else the flow stops as it gets a stop from the previous call
+
+
     # WARNING this assumes that the points provided to this routine are grouped by machine and date
     # stop the DataPointsStore for this batch
     :ok = DataPointsStore.stop_link(machine, date)
+    :ok
   end
 
 
   defp get_chunk_key(line) do
     line.machine <> line.date
+  end
+
+
+  defp get_chunk_filename_key(filename) do
+    # the key should be the date portion of the filename so extract it
+    #[^0-9]*(?<key>[0-9]{6}).*\.
+    matches = Regex.named_captures(~r/[^0-9]*(?<key>[0-9]{6}).*\./, filename)
+    matches["key"]
   end
 
 
@@ -100,30 +125,48 @@ defmodule DataPoints do
       %DataPoints{machine: line.machine, 
         date: date,
         time: time_in_s, 
-        data: %{
-          "mem_max" => to_float(line.mem_max), 
-          "mem_min" => to_float(line.mem_min), 
-          "mem_avg" => to_float(line.mem_avg), 
-          "cpu_max" => to_float(line.cpu_max), 
-          "cpu_min" => to_float(line.cpu_min), 
-          "cpu_avg" => to_float(line.cpu_avg), 
-          "net_max" => to_float(line.net_max), 
-          "net_min" => to_float(line.net_min), 
-          "net_avg" => to_float(line.net_avg)
-        }
+        data: [
+          "mem_max", to_float(line.mem_max), 
+          "mem_min", to_float(line.mem_min), 
+          "mem_avg", to_float(line.mem_avg), 
+          "cpu_max", to_float(line.cpu_max), 
+          "cpu_min", to_float(line.cpu_min), 
+          "cpu_avg", to_float(line.cpu_avg), 
+          "net_max", to_float(line.net_max), 
+          "net_min", to_float(line.net_min), 
+          "net_avg", to_float(line.net_avg)
+        ]
       }
 
     Logger.debug "data_point created is: #{inspect(data_point)}"
+
+    # return the data point
     data_point
   end
 
   defp to_float(string_value) do
     cond do
-      string_value == "" -> 0.0
+      string_value == "" -> 
+        0.0
       true -> 
         {value, _} = Float.parse(string_value)
+        value
     end
   end
+
+  # defp store(point) do
+  #   Logger.debug("Data to store = #{inspect point}") 
+
+  #   # create the store incase it does not exist
+  #   DataPointsStore.start_link(point.machine, point.date)
+
+  #   # add the data to the store
+  #   point.data
+  #   |> Enum.map(fn {key, val} -> DataPointsStore.save(point.machine, point.date, key, point.time, val) end)
+
+  #   # return the machine name and date
+  #   {point.machine, point.date}
+  # end
 
   defp store(point) do
     Logger.debug("Data to store = #{inspect point}") 
@@ -131,13 +174,12 @@ defmodule DataPoints do
     # create the store incase it does not exist
     DataPointsStore.start_link(point.machine, point.date)
 
-    # add the data to the store
-    point.data
-    |> Enum.map(fn {key, val} -> DataPointsStore.save(point.machine, point.date, key, point.time, val) end)
+    DataPointsStore.save_point(point.machine, point.date, point)
 
     # return the machine name and date
     {point.machine, point.date}
   end
+
 
 
   ###################################################################################################################
